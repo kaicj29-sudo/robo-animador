@@ -1,0 +1,50 @@
+name: Gerar vídeo
+run-name: "gerar ${{ inputs.id }}"
+on:
+  workflow_dispatch:
+    inputs:
+      id: {description: "id da prévia", required: true}
+      tema: {description: "tema da história", required: true}
+      estilo: {description: "estilo", required: false, default: "drama"}
+      duracao: {description: "duração", required: false, default: "45s"}
+      arte: {description: "estilo do desenho", required: false, default: "Cartoon 2D"}
+      voz: {description: "voz", required: false, default: "Masculina"}
+      final: {description: "final", required: false, default: "Pergunta pra comentar"}
+      roteiro: {description: "roteiro pronto (opcional)", required: false, default: ""}
+permissions:
+  contents: write
+concurrency: {group: robo, cancel-in-progress: false}
+env:
+  ID: ${{ inputs.id }}
+  TEMA: ${{ inputs.tema }}
+  ESTILO: ${{ inputs.estilo }}
+  DURACAO: ${{ inputs.duracao }}
+  ARTE: ${{ inputs.arte }}
+  VOZ: ${{ inputs.voz }}
+  FINAL: ${{ inputs.final }}
+  ROTEIRO: ${{ inputs.roteiro }}
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+  CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+  CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+jobs:
+  gerar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preparando o robô
+        run: |
+          (which ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)) >/dev/null
+          pip install -q pillow
+          robo/previas.sh abrir
+      - name: Escrevendo a história
+        run: python robo/gerar.py historia
+      - name: Desenhando os personagens
+        run: python robo/gerar.py imagens
+      - name: Gravando a narração
+        run: python robo/gerar.py voz
+      - name: Montando o vídeo
+        run: python robo/gerar.py montar
+      - name: Salvando a prévia
+        if: always()
+        run: python robo/salvar.py && robo/previas.sh salvar "prévia $ID"

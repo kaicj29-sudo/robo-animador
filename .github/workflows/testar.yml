@@ -1,0 +1,17 @@
+name: Testar conexões
+run-name: "testar"
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  testar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      IG_TOKEN: ${{ secrets.IG_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: robo/previas.sh abrir && python robo/postar.py testar; robo/previas.sh salvar "teste"

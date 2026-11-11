@@ -1,0 +1,14 @@
+name: Renovar acesso do Instagram
+on:
+  schedule: [{cron: "17 9 * * 1"}]
+  workflow_dispatch:
+jobs:
+  renovar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      IG_TOKEN: ${{ secrets.IG_TOKEN }}
+      GH_PAT: ${{ secrets.GH_PAT }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install -q pynacl && python robo/postar.py renovar

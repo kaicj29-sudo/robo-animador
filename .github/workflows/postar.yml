@@ -1,0 +1,29 @@
+name: Postar no Instagram
+run-name: "postar ${{ inputs.id }}"
+on:
+  workflow_dispatch:
+    inputs:
+      id: {description: "id da prévia", required: true}
+permissions:
+  contents: write
+concurrency: {group: robo, cancel-in-progress: false}
+jobs:
+  postar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      IG_TOKEN: ${{ secrets.IG_TOKEN }}
+      GH_PAT: ${{ secrets.GH_PAT }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Abrindo a prévia
+        run: robo/previas.sh abrir
+      - name: Postando no Instagram
+        run: python robo/postar.py postar "${{ inputs.id }}"
+      - name: Salvando
+        if: always()
+        run: robo/previas.sh salvar "postado ${{ inputs.id }}"
+      - name: Renovando o acesso
+        if: success()
+        continue-on-error: true
+        run: pip install -q pynacl && python robo/postar.py renovar
