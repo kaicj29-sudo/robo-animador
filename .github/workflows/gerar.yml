@@ -32,6 +32,12 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Conferindo a licença
+        env:
+          LICENCA_EMAIL: ${{ secrets.LICENCA_EMAIL }}
+        run: |
+          r=$(curl -s --get --data-urlencode "email=$LICENCA_EMAIL" https://animador-automatico.pages.dev/api/licenca || true)
+          echo "$r" | grep -q '"ok":true' || { echo "Licença não encontrada ou cancelada. Abra o app do robô e entre com o e-mail da compra."; exit 1; }
       - name: Preparando o robô
         run: |
           (which ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)) >/dev/null
