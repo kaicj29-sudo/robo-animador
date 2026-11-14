@@ -222,7 +222,8 @@ def voz():
     h = json.loads((SAIDA / 'historia.json').read_text(encoding='utf-8'))
     falas = [c['fala'] for c in h['cenas']]
     instr = f"Narre como contador de histórias brasileiro de Reels, tom {TOM.get(env('ESTILO'), 'envolvente')}, ritmo dinâmico, pausa curta entre os parágrafos, sotaque brasileiro natural:"
-    (SAIDA / 'voz.pcm').write_bytes(tts(instr + '\n\n' + '\n\n'.join(falas), VOZES.get(env('VOZ'), 'Puck')))
+    # só o texto da história vai para a voz (instrução de estilo era lida em voz alta em alguns casos)
+    (SAIDA / 'voz.pcm').write_bytes(tts('\n\n'.join(falas), VOZES.get(env('VOZ'), 'Puck')))
     subprocess.run(['ffmpeg', '-y', '-v', 'error', '-f', 's16le', '-ar', '24000', '-ac', '1', '-i', str(SAIDA / 'voz.pcm'),
                     '-af', 'silenceremove=start_periods=1:start_threshold=-45dB,loudnorm=I=-15:TP=-1.5:LRA=11', '-ar', '44100', str(SAIDA / 'voz.mp3')], check=True)
     total = duracao(SAIDA / 'voz.mp3')
