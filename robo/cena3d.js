@@ -21,7 +21,7 @@ function chrome() {
   for (const [i, p] of plano.partes.entries()) {
     const ini = Date.now();
     await pg.goto('file://' + path.join(plano.pasta, 'cena3d.html') + `?w=${w}&h=${h}`, {waitUntil: 'load'});
-    const usada = await pg.evaluate((c, t, s, d) => window.setup(c, t, s, d), p.cena, p.texto || '', p.seed || i + 1, p.dur);
+    const usada = await pg.evaluate((c, t, s, d, e) => window.setup(c, t, s, d, e), p.cena, p.texto || '', p.seed || i + 1, p.dur, p.spec || null);
     const n = Math.max(2, Math.round(p.dur * fps));
     const ff = spawn('ffmpeg', ['-y', '-v', 'error', '-f', 'image2pipe', '-framerate', String(fps), '-i', '-',
       '-vf', 'scale=1080:1920:flags=lanczos,format=yuv420p', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', p.saida], {stdio: ['pipe', 'inherit', 'inherit']});

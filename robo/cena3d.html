@@ -194,10 +194,96 @@ const CENAS = {
   },
 };
 
-window.setup = async (cena, txt, seed, dur) => {
+
+// ===== kit "explicativo" (estilo low-poly, cena descrita em JSON pela IA) =====
+const cor = (c, d) => { try { return new THREE.Color(c || d); } catch (e) { return new THREE.Color(d); } };
+const num = (v, d) => (typeof v === 'number' && isFinite(v) ? v : d);
+const v3 = (a, d) => Array.isArray(a) ? [num(a[0], d[0]), num(a[1], d[1]), num(a[2], d[2])] : d;
+const lp = (c) => new THREE.MeshStandardMaterial({color: c, roughness: .75, metalness: .05, flatShading: true});
+function etiqueta(txt) {
+  const k = document.createElement('canvas'); const x = k.getContext('2d'); x.font = "800 64px Monts, 'DejaVu Sans', sans-serif";
+  const w = Math.min(1400, x.measureText(txt).width + 70); k.width = w; k.height = 110; x.font = "800 64px Monts, 'DejaVu Sans', sans-serif";
+  x.fillStyle = '#ffffff'; x.beginPath(); x.roundRect(4, 4, w - 8, 102, 22); x.fill(); x.lineWidth = 6; x.strokeStyle = '#111'; x.stroke();
+  x.fillStyle = '#111'; x.textBaseline = 'middle'; x.fillText(txt, 35, 58);
+  const t = new THREE.CanvasTexture(k); t.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({map: t, depthTest: false, transparent: true})); sp.scale.set(w / 360, 110 / 360, 1); sp.renderOrder = 10; return sp;
+}
+function boneco(c) {
+  const g = new THREE.Group(), pele = lp(0xf2c29b), cam = lp(c), calca = lp(0x2f4f8f);
+  const cab = new THREE.Mesh(new THREE.BoxGeometry(.5, .5, .5), pele); cab.position.y = 1.72; g.add(cab);
+  const olho = lp(0x111111); [-.11, .11].forEach((x) => { const o = new THREE.Mesh(new THREE.BoxGeometry(.07, .09, .02), olho); o.position.set(x, 1.76, .26); g.add(o); });
+  const tr = new THREE.Mesh(new THREE.BoxGeometry(.62, .7, .34), cam); tr.position.y = 1.12; g.add(tr);
+  const mb = (m, x, y, h) => { const p = new THREE.Group(); p.position.set(x, y, 0); const b = new THREE.Mesh(new THREE.BoxGeometry(.24, h, .26), m); b.position.y = -h / 2; p.add(b); g.add(p); return p; };
+  g.userData.membros = [mb(cam, -.43, 1.45, .66), mb(cam, .43, 1.45, .66), mb(calca, -.16, .78, .78), mb(calca, .16, .78, .78)];
+  return g;
+}
+function fogo() { const g = new THREE.Group(); [[0xff4d1a, .5, 1.1], [0xff9a1f, .36, .85], [0xffe14d, .2, .55]].forEach(([c, r, h], i) => { const m = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7), new THREE.MeshBasicMaterial({color: c})); m.position.y = h / 2; m.position.z = i * .02; g.add(m); });
+  const b = brilho('rgba(255,140,40,1)', .7); b.scale.setScalar(2); b.position.y = .5; g.add(b); g.userData.chama = true; return g; }
+function agua(alt) { const g = new THREE.Group(); const m = new THREE.MeshStandardMaterial({color: 0x47b5ff, roughness: .2, transparent: true, opacity: .85}); const gotas = [];
+  for (let i = 0; i < 26; i++) { const d = new THREE.Mesh(new THREE.SphereGeometry(.06 + (i % 3) * .015, 8, 6), m); d.userData = {f: i / 26, x: (Math.sin(i * 7.1)) * .18, z: (Math.cos(i * 3.3)) * .18}; g.add(d); gotas.push(d); }
+  g.userData.gotas = gotas; g.userData.alt = alt; return g; }
+function faisca() { const g = new THREE.Group(); const ps = []; for (let i = 0; i < 12; i++) { const s = brilho('rgba(255,230,120,1)', 1); s.scale.setScalar(.25); g.add(s); ps.push(s); } g.userData.faiscas = ps; return g; }
+function seta(c) { const g = new THREE.Group(), m = new THREE.MeshBasicMaterial({color: c}); const h = new THREE.Mesh(new THREE.CylinderGeometry(.07, .07, .9, 10), m); h.position.y = .45; g.add(h); const p = new THREE.Mesh(new THREE.ConeGeometry(.2, .4, 12), m); p.position.y = 1.05; g.add(p); return g; }
+function mola(c) { const pts = []; for (let i = 0; i <= 160; i++) { const a = i / 160 * Math.PI * 2 * 7; pts.push(new THREE.Vector3(Math.cos(a) * .3, i / 160, Math.sin(a) * .3)); } return new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 400, .04, 8), lp(c)); }
+function engr(c) { const sh = new THREE.Shape(); const n = 10; for (let i = 0; i < n * 4; i++) { const a = i / (n * 4) * Math.PI * 2, d = (i % 4 < 2) ? .5 : .39; i ? sh.lineTo(Math.cos(a) * d, Math.sin(a) * d) : sh.moveTo(Math.cos(a) * d, Math.sin(a) * d); } sh.closePath();
+  const h = new THREE.Path(); h.absarc(0, 0, .15, 0, Math.PI * 2, true); sh.holes.push(h); const m = new THREE.Mesh(new THREE.ExtrudeGeometry(sh, {depth: .18, bevelEnabled: false}), lp(c)); m.geometry.center(); return m; }
+function cano(de, ate, r, c) { const a = new THREE.Vector3(...de), b = new THREE.Vector3(...ate); const L = Math.max(.05, a.distanceTo(b));
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, L, 14), lp(c)); m.position.copy(a.clone().add(b).multiplyScalar(.5)); m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize()); return m; }
+function objeto(o) {
+  const c = cor(o.cor, '#cccccc'); const t = Array.isArray(o.tam) ? o.tam : [num(o.tam, 1), num(o.tam, 1), num(o.tam, 1)];
+  const tam = [Math.min(12, Math.max(.02, num(t[0], 1))), Math.min(12, Math.max(.02, num(t[1], t[0] || 1))), Math.min(12, Math.max(.02, num(t[2], t[0] || 1)))];
+  let m;
+  switch (o.tipo) {
+    case 'caixa': m = new THREE.Mesh(new THREE.BoxGeometry(...tam), lp(c)); break;
+    case 'vidro': m = new THREE.Mesh(new THREE.BoxGeometry(...tam), new THREE.MeshStandardMaterial({color: c, transparent: true, opacity: .28, roughness: .1})); break;
+    case 'cilindro': m = new THREE.Mesh(new THREE.CylinderGeometry(tam[0] / 2, tam[0] / 2, tam[1], 20), lp(c)); break;
+    case 'esfera': m = new THREE.Mesh(new THREE.SphereGeometry(tam[0] / 2, 20, 14), lp(c)); break;
+    case 'cano': return cano(v3(o.pos, [0, 0, 0]), v3(o.ate, [0, 1, 0]), Math.min(1, num(o.raio, .08)), c);
+    case 'boneco': m = boneco(c); m.scale.setScalar(Math.min(3, num(o.escala, 1))); break;
+    case 'fogo': m = fogo(); m.scale.setScalar(Math.min(4, num(o.escala, 1))); break;
+    case 'agua': m = agua(Math.min(8, num(o.altura, 2))); break;
+    case 'faisca': m = faisca(); break;
+    case 'seta': m = seta(c); m.scale.setScalar(Math.min(4, num(o.escala, 1))); break;
+    case 'mola': m = mola(c); m.scale.set(tam[0], tam[1], tam[0]); break;
+    case 'engrenagem': m = engr(c); m.scale.setScalar(tam[0]); break;
+    case 'texto': m = etiqueta(String(o.texto || '').slice(0, 28)); break;
+    default: return null;
+  }
+  m.position.set(...v3(o.pos, [0, 0, 0])); const r = v3(o.rot, [0, 0, 0]); m.rotation.set(r[0] * Math.PI / 180, r[1] * Math.PI / 180, r[2] * Math.PI / 180);
+  m.userData.anim = o.anim || null; m.userData.p0 = m.position.clone(); m.userData.r0 = m.rotation.clone();
+  return m;
+}
+function animar(m, t, dur) {
+  const a = m.userData.anim, u = m.userData;
+  if (u.chama) m.children.forEach((k, i) => { if (k.isMesh) k.scale.set(1 + Math.sin(t * 13 + i) * .12, 1 + Math.sin(t * 17 + i * 2) * .2, 1); });
+  if (u.gotas) u.gotas.forEach((d) => { const f = (d.userData.f + t * 1.3) % 1; d.position.set(d.userData.x * f * 2, -f * u.alt, d.userData.z * f * 2); });
+  if (u.faiscas) u.faiscas.forEach((s, i) => { const f = (t * 2.2 + i / 12) % 1; const ang = i * 2.4; s.position.set(Math.cos(ang) * f * .9, Math.sin(ang) * f * .9 + .1, 0); s.material.opacity = 1 - f; });
+  if (u.membros) { const w = a && a.tipo === 'andar' ? Math.sin(t * 7) * .6 : Math.sin(t * 2) * .08; u.membros[0].rotation.x = w; u.membros[1].rotation.x = -w; u.membros[2].rotation.x = -w; u.membros[3].rotation.x = w; }
+  if (!a) return;
+  const k = Math.min(1, t / Math.max(.5, dur * .8)), e = k < .5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2, v = num(a.vel, 1);
+  if (a.para && ['mover', 'subir', 'descer', 'cair', 'andar'].includes(a.tipo)) { const p = new THREE.Vector3(...v3(a.para, [0, 0, 0])); m.position.copy(u.p0.clone().lerp(p, a.tipo === 'cair' ? k * k : e)); }
+  if (a.tipo === 'vaievem' && a.para) { const p = new THREE.Vector3(...v3(a.para, [0, 0, 0])); m.position.copy(u.p0.clone().lerp(p, .5 - .5 * Math.cos(t * v * 2))); }
+  if (a.tipo === 'girar') { const eixo = a.eixo || 'y'; m.rotation[eixo] = u.r0[eixo] + t * v * 2; }
+  if (a.tipo === 'pulsar') m.scale.setScalar(1 + .12 * Math.sin(t * v * 6));
+  if (a.tipo === 'piscar') m.visible = Math.sin(t * v * 8) > -.2;
+}
+CENAS.livre = async (txt, seed, dur, spec) => {
+  novaCena(40); spec = spec || {};
+  S.background = fundoGradiente(spec.fundo || '#2a6fb0', spec.fundo2 || '#0c1d33');
+  S.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.4)); const sol = new THREE.DirectionalLight(0xffffff, 2.2); sol.position.set(4, 8, 6); S.add(sol);
+  if (spec.chao !== false) { const ch = new THREE.Mesh(new THREE.BoxGeometry(14, .2, 9), lp(cor(spec.chao, '#8fd16a'))); ch.position.y = -.1; S.add(ch); }
+  const objs = []; (Array.isArray(spec.objetos) ? spec.objetos : []).slice(0, 24).forEach((o) => { try { const m = objeto(o || {}); if (m) { S.add(m); objs.push(m); } } catch (e) {} });
+  if (!objs.length) { const m = etiqueta(String(txt || '?').slice(0, 24)); m.position.set(0, 2, 0); m.scale.multiplyScalar(1.6); S.add(m); }
+  const cam = spec.camera || {}; const alvo = new THREE.Vector3(...v3(cam.alvo, [0, 2, 0])), dist = Math.min(40, Math.max(5, num(cam.dist, 9) * 1.8)), el = num(cam.altura, 25) * Math.PI / 180, az0 = num(cam.lado, 20) * Math.PI / 180;
+  objs.forEach((m) => { if (m.isSprite) m.scale.multiplyScalar(Math.max(1.6, dist / 7)); });
+  tick = (t) => { objs.forEach((m) => animar(m, t, dur)); const az = az0 + (cam.girar === false ? 0 : Math.sin(t * .35) * .25) + t * .03, d = dist * (1 - .08 * ease(t / Math.max(dur, 1)));
+    C.position.set(alvo.x + Math.sin(az) * Math.cos(el) * d, alvo.y + Math.sin(el) * d, alvo.z + Math.cos(az) * Math.cos(el) * d); C.lookAt(alvo); };
+};
+
+window.setup = async (cena, txt, seed, dur, spec) => {
   try { await document.fonts.load('800 100px Monts'); } catch (e) {}
   const nome = CENAS[cena] ? cena : 'numero';
-  await CENAS[nome](txt, seed || 1, dur || 4);
+  await CENAS[nome](txt, seed || 1, dur || 4, spec);
   return nome;
 };
 window.frame = (t) => { tick(t); R.render(S, C); return cv.toDataURL('image/jpeg', 0.9); };
