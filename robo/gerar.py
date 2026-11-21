@@ -82,6 +82,7 @@ ESTILOS = {
     'romance': 'de romance, leve e envolvente',
     'motiva': 'motivacional, de superação, com uma lição no final',
     'curio': 'de curiosidade, contando um fato surpreendente em forma de história',
+    'curio3d': 'de curiosidade em 3D (fatos reais)',
     'decide': 'interativa, que termina num dilema com duas opções pra o público votar nos comentários',
     'familia': 'de treta de família, situação polêmica do dia a dia que divide opiniões',
 }
@@ -99,8 +100,52 @@ FINAIS = {
 CENAS_POR_DURACAO = {'30s': 5, '45s': 7, '60s': 9, 'Série (parte 1)': 7}
 
 
+CENAS_3D = {
+    'terra': 'o planeta Terra girando no espaço (clima, continentes, rotação, população, natureza, geografia)',
+    'lua': 'a Lua de perto com a Terra ao fundo (Lua, marés, astronautas, noite)',
+    'sol': 'o Sol em chamas (calor, luz, energia, estrelas, tempo da luz)',
+    'espaco': 'voo pelo espaço entre estrelas e nebulosas (universo, galáxias, distâncias, mistérios)',
+    'planeta': 'um planeta com anéis tipo Saturno (outros planetas, sistema solar)',
+    'oceano': 'ondas do oceano (mar, profundezas, água, animais marinhos, navios)',
+    'atomo': 'um átomo com elétrons girando (ciência, química, física, matéria, energia)',
+    'dna': 'uma hélice de DNA girando (corpo humano, genética, células, animais, vida)',
+    'numero': 'o número ou palavra de impacto em 3D gigante (use quando a fala tiver um número, medida ou dado marcante)',
+}
+
+
+def historia_3d(tema, n):
+    lista = '\n'.join(f'- "{k}": {v}' for k, v in CENAS_3D.items())
+    prompt = f"""Você é roteirista de vídeos virais curtos (Reels/TikTok) de CURIOSIDADES em português do Brasil, narrados sobre animações 3D.
+Tema: "{tema}".
+Regras:
+- Use só fatos reais, conhecidos e verificáveis. Se não tiver certeza de um número, não use número. Nada de boato, nada inventado.
+- Exatamente {n} falas de narração, curtas (8 a 22 palavras), linguagem simples e animada do Brasil.
+- A fala 1 é o GANCHO: uma pergunta ou afirmação surpreendente que prende em 2 segundos. Nada de "olá".
+- Cada fala traz um fato novo que deixa a pessoa mais curiosa. {FINAIS.get(env('FINAL'), FINAIS['Pergunta pra comentar'])}
+- Para cada fala, escolha "cena3d" desta lista (a que melhor combina com o que está sendo dito). Não repita a mesma cena em falas seguidas e use "numero" em pelo menos 2 falas:
+{lista}
+- "texto3d": quando a cena for "numero", o número ou palavra de impacto (até 2 palavras, ex.: "8 MINUTOS", "70%", "NUNCA"); nas outras cenas, "".
+- "destaque": a palavra mais forte da fala.
+- "legenda": legenda do post em português com 2 a 3 frases curtas, um emoji, uma chamada pra comentar e 4 hashtags.
+Responda só em JSON: {{"titulo": str, "cenas": [{{"fala": str, "cena3d": str, "texto3d": str, "destaque": str}}], "legenda": str}}"""
+    h = gemini_texto(prompt)
+    h['cenas'] = h['cenas'][:n]
+    for i, c in enumerate(h['cenas']):
+        if c.get('cena3d') not in CENAS_3D:
+            c['cena3d'] = 'numero' if c.get('texto3d') else ['terra', 'espaco', 'atomo', 'oceano'][i % 4]
+        if c['cena3d'] == 'numero' and not c.get('texto3d'):
+            c['texto3d'] = c.get('destaque', '')
+    return h
+
+
 def historia():
     tema, estilo = env('TEMA'), env('ESTILO', 'drama')
+    if estilo == 'curio3d':
+        n = CENAS_POR_DURACAO.get(env('DURACAO', '45s'), 7)
+        h = historia_3d(tema, n)
+        (SAIDA / 'historia.json').write_text(json.dumps(h, ensure_ascii=False, indent=1), encoding='utf-8')
+        log('Curiosidade 3D:', h['titulo'], '|', ', '.join(c['cena3d'] for c in h['cenas']))
+        return
     n = CENAS_POR_DURACAO.get(env('DURACAO', '45s'), 7)
     roteiro = env('ROTEIRO')
     prompt = f"""Você é roteirista de vídeos virais curtos (Reels/TikTok) de histórias animadas em português do Brasil.
@@ -167,8 +212,36 @@ def cf_imagem(prompt, w, h, refs=(), seed=None):
             raise RuntimeError(f'Cloudflare respondeu HTTP {e.code}')
 
 
+PASTA_3D = RAIZ / 'r3d'
+TEX_3D = 'https://raw.githubusercontent.com/mrdoob/three.js/r158/examples/textures/planets/'
+
+
+def preparar_3d():
+    """Instala o motor 3D (three.js + Chrome sem tela) e baixa as texturas dos planetas."""
+    import shutil
+    (PASTA_3D / 'tex').mkdir(parents=True, exist_ok=True)
+    if not (PASTA_3D / 'node_modules' / 'puppeteer-core').exists():
+        subprocess.run(['npm', 'init', '-y'], cwd=PASTA_3D, capture_output=True)
+        subprocess.run(['npm', 'i', '--silent', '--no-audit', '--no-fund', 'three@0.158.0', 'puppeteer-core@21.11.0'], cwd=PASTA_3D, check=True)
+    for arq in ('cena3d.html', 'cena3d.js'):
+        shutil.copy(RAIZ / 'robo' / arq, PASTA_3D / arq)
+    shutil.copy(PASTA_3D / 'node_modules' / 'three' / 'build' / 'three.min.js', PASTA_3D / 'three.min.js')
+    if _fonte().startswith('Montserrat'):
+        shutil.copy(RAIZ / 'robo' / 'Montserrat-ExtraBold.ttf', PASTA_3D / 'Montserrat-ExtraBold.ttf')
+    for t in ('earth_atmos_2048.jpg', 'earth_specular_2048.jpg', 'earth_normal_2048.jpg', 'earth_clouds_1024.png', 'moon_1024.jpg'):
+        if not (PASTA_3D / 'tex' / t).exists():
+            try:
+                (PASTA_3D / 'tex' / t).write_bytes(http(TEX_3D + t, timeout=60)[0])
+            except Exception as e:  # noqa: BLE001
+                log('   textura', t, 'falhou:', e)
+    log('motor 3D pronto')
+
+
 def imagens():
     h = json.loads((SAIDA / 'historia.json').read_text(encoding='utf-8'))
+    if env('ESTILO') == 'curio3d':
+        preparar_3d()
+        return
     arte = ARTES.get(env('ARTE', 'Cartoon 2D'), ARTES['Cartoon 2D'])
     seed = sum(map(ord, h['titulo'])) % 100000
     ref = SAIDA / 'personagem.png'
@@ -183,7 +256,7 @@ def imagens():
 VOZES = {'Masculina': 'Puck', 'Feminina': 'Kore', 'Grave de suspense': 'Charon', 'Jovem animada': 'Leda'}
 TOM = {'drama': 'dramático e envolvente', 'medo': 'baixo, tenso e misterioso', 'risada': 'divertido e animado', 'emocao': 'emocionado e suave',
        'suspense': 'tenso e misterioso', 'romance': 'suave e apaixonado', 'motiva': 'inspirador e forte', 'curio': 'curioso e animado',
-       'decide': 'envolvente, de quem conta uma fofoca', 'familia': 'indignado e engraçado'}
+       'decide': 'envolvente, de quem conta uma fofoca', 'familia': 'indignado e engraçado', 'curio3d': 'curioso, animado e impressionado'}
 
 
 def tts(texto, voz):
@@ -282,7 +355,20 @@ def montar():
     tempos = json.loads((SAIDA / 'tempos.json').read_text(encoding='utf-8'))
     fonte = _fonte()
     partes = []
-    for i, t in enumerate(tempos):
+    if env('ESTILO') == 'curio3d':
+        h = json.loads((SAIDA / 'historia.json').read_text(encoding='utf-8'))
+        if not (PASTA_3D / 'cena3d.html').exists():
+            preparar_3d()
+        plano = {'pasta': str(PASTA_3D), 'w': 720, 'h': 1280, 'fps': 30, 'partes': []}
+        for i, t in enumerate(tempos):
+            d = t['fim'] - t['ini'] + (0.4 if i < len(tempos) - 1 else 0)
+            c = h['cenas'][i] if i < len(h['cenas']) else {}
+            plano['partes'].append({'cena': c.get('cena3d', 'espaco'), 'texto': c.get('texto3d', ''), 'dur': round(d, 3), 'seed': sum(map(ord, h['titulo'])) % 997 + i,
+                                    'saida': str(SAIDA / f'parte_{i:02d}.mp4')})
+            partes.append((SAIDA / f'parte_{i:02d}.mp4', d))
+        (SAIDA / 'plano3d.json').write_text(json.dumps(plano, ensure_ascii=False), encoding='utf-8')
+        subprocess.run(['node', str(PASTA_3D / 'cena3d.js'), str(SAIDA / 'plano3d.json')], cwd=PASTA_3D, check=True)
+    for i, t in enumerate(tempos if not partes else []):
         d = t['fim'] - t['ini'] + (0.4 if i < len(tempos) - 1 else 0)
         n = max(2, int(d * 30))
         z = "'min(1+0.0009*on,1.15)'" if i % 2 == 0 else "'max(1.15-0.0009*on,1.0)'"

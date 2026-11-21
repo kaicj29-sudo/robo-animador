@@ -1,0 +1,205 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>html,body{margin:0;background:#000;overflow:hidden}canvas{display:block}
+@font-face{font-family:'Monts';src:url('Montserrat-ExtraBold.ttf');font-weight:800}</style>
+<script src="three.min.js"></script>
+</head><body><canvas id="c"></canvas>
+<script>
+// Cenas 3D do estilo "Curiosidade 3D". Tudo é determinístico pelo tempo t (segundos),
+// então o renderizador pede quadro a quadro: setup(cena, texto, semente, duração) e depois frame(t).
+const Q = new URLSearchParams(location.search);
+const W = +(Q.get('w') || 720), H = +(Q.get('h') || 1280);
+const cv = document.getElementById('c'); cv.width = W; cv.height = H;
+const R = new THREE.WebGLRenderer({canvas: cv, antialias: true, preserveDrawingBuffer: true});
+R.setSize(W, H, false); R.outputColorSpace = THREE.SRGBColorSpace; R.toneMapping = THREE.ACESFilmicToneMapping; R.toneMappingExposure = 1.05;
+const TL = new THREE.TextureLoader();
+const tex = {};
+function carregar(nome) { return new Promise((ok) => { if (tex[nome]) return ok(tex[nome]); TL.load('tex/' + nome, (t) => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; tex[nome] = t; ok(t); }, undefined, () => ok(null)); }); }
+let S, C, tick = () => {};
+const rnd = (s) => () => (s = (s * 16807) % 2147483647) / 2147483647;
+const ease = (x) => x < 0 ? 0 : x > 1 ? 1 : 1 - Math.pow(1 - x, 3);
+
+function estrelas(n, raio, seed, tam) {
+  const r = rnd(seed || 7), g = new THREE.BufferGeometry(), p = new Float32Array(n * 3), c = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const u = r() * 2 - 1, th = r() * Math.PI * 2, rr = raio * (0.6 + r() * 0.4);
+    p[i * 3] = Math.sqrt(1 - u * u) * Math.cos(th) * rr; p[i * 3 + 1] = Math.sqrt(1 - u * u) * Math.sin(th) * rr; p[i * 3 + 2] = u * rr;
+    const k = 0.7 + r() * 0.3, az = r(); c[i * 3] = k * (az > .8 ? .8 : 1); c[i * 3 + 1] = k * .95; c[i * 3 + 2] = k * (az < .2 ? .8 : 1);
+  }
+  g.setAttribute('position', new THREE.BufferAttribute(p, 3)); g.setAttribute('color', new THREE.BufferAttribute(c, 3));
+  return new THREE.Points(g, new THREE.PointsMaterial({size: tam || 0.035, vertexColors: true, sizeAttenuation: true, transparent: true, depthWrite: false}));
+}
+function brilho(cor, forca) {
+  const cnv = document.createElement('canvas'); cnv.width = cnv.height = 256; const x = cnv.getContext('2d');
+  const gr = x.createRadialGradient(128, 128, 0, 128, 128, 128); gr.addColorStop(0, cor); gr.addColorStop(0.25, cor); gr.addColorStop(1, 'rgba(0,0,0,0)');
+  x.fillStyle = gr; x.fillRect(0, 0, 256, 256);
+  return new THREE.Sprite(new THREE.SpriteMaterial({map: new THREE.CanvasTexture(cnv), blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: forca || 1}));
+}
+function atmosfera(raio, cor) {
+  return new THREE.Mesh(new THREE.SphereGeometry(raio, 64, 64), new THREE.ShaderMaterial({
+    uniforms: {c: {value: new THREE.Color(cor)}}, side: THREE.BackSide, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false,
+    vertexShader: 'varying vec3 n; varying vec3 v; void main(){ n=normalize(normalMatrix*normal); vec4 mv=modelViewMatrix*vec4(position,1.); v=normalize(-mv.xyz); gl_Position=projectionMatrix*mv; }',
+    fragmentShader: 'uniform vec3 c; varying vec3 n; varying vec3 v; void main(){ float f=pow(clamp(1.0-abs(dot(n,v)),0.,1.),2.2); gl_FragColor=vec4(c*f*1.6, f); }'}));
+}
+function fundoGradiente(a, b) {
+  const cnv = document.createElement('canvas'); cnv.width = 4; cnv.height = 512; const x = cnv.getContext('2d');
+  const gr = x.createLinearGradient(0, 0, 0, 512); gr.addColorStop(0, a); gr.addColorStop(1, b); x.fillStyle = gr; x.fillRect(0, 0, 4, 512);
+  const t = new THREE.CanvasTexture(cnv); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+function textoTex(txt, cor1, cor2) {
+  const cnv = document.createElement('canvas'); cnv.width = 1024; cnv.height = 1024; const x = cnv.getContext('2d');
+  const pal = txt.split(/\s+/); let linhas = [txt];
+  if (pal.length > 1) { let best = null; for (let i = 1; i < pal.length; i++) { const l = [pal.slice(0, i).join(' '), pal.slice(i).join(' ')]; const m = Math.max(...l.map((q) => q.length)); if (!best || m < best.m) best = {l, m}; } linhas = best.l; }
+  let fs = 300; const caber = () => { x.font = `800 ${fs}px Monts, 'DejaVu Sans', sans-serif`; return Math.max(...linhas.map((l) => x.measureText(l).width)) <= 940 && fs * 1.05 * linhas.length <= 900; };
+  while (!caber() && fs > 60) fs -= 8;
+  x.textAlign = 'center'; x.textBaseline = 'middle'; x.lineJoin = 'round';
+  linhas.forEach((l, i) => { const y = 512 + (i - (linhas.length - 1) / 2) * fs * 1.05;
+    x.lineWidth = fs * 0.1; x.strokeStyle = '#ffffff'; x.strokeText(l, 512, y);
+    const gr = x.createLinearGradient(0, y - fs / 2, 0, y + fs / 2); gr.addColorStop(0, cor1); gr.addColorStop(1, cor2); x.fillStyle = gr; x.fillText(l, 512, y); });
+  const t = new THREE.CanvasTexture(cnv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t;
+}
+function novaCena(fov) { S = new THREE.Scene(); C = new THREE.PerspectiveCamera(fov || 40, W / H, 0.01, 2000); }
+
+const CENAS = {
+  async terra(txt, seed, dur) {
+    novaCena(38); S.background = new THREE.Color(0x01030a);
+    const [m, sp, nm, cl] = await Promise.all(['earth_atmos_2048.jpg', 'earth_specular_2048.jpg', 'earth_normal_2048.jpg', 'earth_clouds_1024.png'].map(carregar));
+    const g = new THREE.Group(); S.add(g); g.rotation.z = 0.41;
+    const terra = new THREE.Mesh(new THREE.SphereGeometry(1, 128, 128), new THREE.MeshPhongMaterial({map: m, specularMap: sp, normalMap: nm, normalScale: new THREE.Vector2(0.85, -0.85), shininess: 18, specular: new THREE.Color(0x335577)}));
+    const nuv = new THREE.Mesh(new THREE.SphereGeometry(1.012, 128, 128), new THREE.MeshLambertMaterial({map: cl, transparent: true, opacity: 0.85, depthWrite: false}));
+    g.add(terra, nuv); S.add(atmosfera(1.09, 0x4aa8ff));
+    S.add(estrelas(4000, 60, seed, 0.12)); S.add(new THREE.AmbientLight(0x223344, 0.35));
+    const sol = new THREE.DirectionalLight(0xffffff, 3.1); sol.position.set(-4, 1.5, 3); S.add(sol);
+    const r0 = (seed % 628) / 100;
+    tick = (t) => { terra.rotation.y = r0 + t * 0.22; nuv.rotation.y = r0 + t * 0.26; const k = ease(t / Math.max(dur, 1));
+      C.position.set(Math.sin(t * 0.08) * 0.4, 0.3 - k * 0.3, 6.4 - k * 1.3); C.lookAt(0, -0.05, 0); };
+  },
+  async lua(txt, seed, dur) {
+    novaCena(36); S.background = new THREE.Color(0x000000);
+    const [mt, et] = await Promise.all(['moon_1024.jpg', 'earth_atmos_2048.jpg'].map(carregar));
+    const lua = new THREE.Mesh(new THREE.SphereGeometry(1, 128, 128), new THREE.MeshStandardMaterial({map: mt, roughness: 1, metalness: 0, bumpMap: mt, bumpScale: 0.025}));
+    S.add(lua);
+    const terra = new THREE.Mesh(new THREE.SphereGeometry(0.42, 64, 64), new THREE.MeshPhongMaterial({map: et, shininess: 10})); terra.position.set(2.6, 3.2, -7); S.add(terra);
+    const at = atmosfera(0.46, 0x4aa8ff); at.position.copy(terra.position); S.add(at);
+    S.add(estrelas(3500, 60, seed, 0.12)); S.add(new THREE.AmbientLight(0x111111, 0.4));
+    const sol = new THREE.DirectionalLight(0xfff4e6, 3.4); sol.position.set(-5, 1, 2); S.add(sol);
+    tick = (t) => { lua.rotation.y = t * 0.06 + 2; terra.rotation.y = t * 0.3; const k = ease(t / Math.max(dur, 1));
+      C.position.set(0.35 - k * 0.5, -0.3 + k * 0.2, 5.2 - k * 1.0); C.lookAt(0.3, 0.35, 0); };
+  },
+  async sol(txt, seed, dur) {
+    novaCena(40); S.background = new THREE.Color(0x030100);
+    const mat = new THREE.ShaderMaterial({uniforms: {t: {value: 0}}, vertexShader: 'varying vec3 p; varying vec3 n; varying vec3 v; void main(){ p=position; n=normalize(normalMatrix*normal); vec4 mv=modelViewMatrix*vec4(position,1.); v=normalize(-mv.xyz); gl_Position=projectionMatrix*mv; }',
+      fragmentShader: `uniform float t; varying vec3 p; varying vec3 n; varying vec3 v;
+      float h(vec3 x){ return fract(sin(dot(x,vec3(127.1,311.7,74.7)))*43758.5453); }
+      float no(vec3 x){ vec3 i=floor(x), f=fract(x); f=f*f*(3.-2.*f);
+        return mix(mix(mix(h(i),h(i+vec3(1,0,0)),f.x),mix(h(i+vec3(0,1,0)),h(i+vec3(1,1,0)),f.x),f.y),mix(mix(h(i+vec3(0,0,1)),h(i+vec3(1,0,1)),f.x),mix(h(i+vec3(0,1,1)),h(i+vec3(1,1,1)),f.x),f.y),f.z); }
+      float fbm(vec3 x){ float s=0., a=.5; for(int i=0;i<5;i++){ s+=a*no(x); x*=2.03; a*=.5; } return s; }
+      void main(){ float f=fbm(p*3.2+vec3(t*.12,t*.07,-t*.09)); float g=fbm(p*9.+f*2.+t*.2);
+        vec3 c=mix(vec3(1.,.32,.02),vec3(1.,.85,.35),smoothstep(.35,.8,f*.7+g*.5)); float lim=pow(max(dot(n,v),0.),.45);
+        gl_FragColor=vec4(c*(0.55+0.65*lim)*1.0,1.); }`});
+    const sol = new THREE.Mesh(new THREE.SphereGeometry(1, 128, 128), mat); S.add(sol);
+    const b1 = brilho('rgba(255,150,50,1)', 0.55); b1.scale.setScalar(3.6); S.add(b1);
+    const b2 = brilho('rgba(255,80,20,1)', 0.3); b2.scale.setScalar(7); S.add(b2);
+    const r = rnd(seed), pts = [];
+    for (let i = 0; i < 50; i++) { const s = brilho('rgba(255,170,70,1)', 0.18 + r() * 0.25); s.scale.setScalar(0.06 + r() * 0.12); s.userData = {a: r() * 6.28, b: r() * 3.14, v: 0.08 + r() * 0.2, d: 1.05 + r() * 0.5}; S.add(s); pts.push(s); }
+    S.add(estrelas(2500, 70, seed, 0.12));
+    tick = (t) => { mat.uniforms.t.value = t; sol.rotation.y = t * 0.05;
+      pts.forEach((s) => { const u = s.userData, d = u.d + 0.15 * Math.sin(t * u.v * 3 + u.a); s.position.set(Math.cos(u.a + t * u.v) * Math.sin(u.b) * d, Math.cos(u.b) * d, Math.sin(u.a + t * u.v) * Math.sin(u.b) * d); });
+      const k = ease(t / Math.max(dur, 1)); C.position.set(Math.sin(t * .1) * .5, .2, 6.6 - k * 1.2); C.lookAt(0, 0, 0); };
+  },
+  async espaco(txt, seed, dur) {
+    novaCena(55); S.background = new THREE.Color(0x02010a); S.fog = new THREE.FogExp2(0x02010a, 0.012);
+    const campo = estrelas(9000, 120, seed, 0.25); S.add(campo);
+    const r = rnd(seed + 3), cores = ['rgba(140,70,255,1)', 'rgba(255,60,170,1)', 'rgba(40,140,255,1)', 'rgba(40,220,200,1)'];
+    for (let i = 0; i < 14; i++) { const s = brilho(cores[i % 4], 0.22 + r() * 0.2); s.scale.setScalar(18 + r() * 26); s.position.set((r() - .5) * 60, (r() - .5) * 80, -20 - r() * 90); S.add(s); }
+    const pl = new THREE.Mesh(new THREE.SphereGeometry(3, 96, 96), new THREE.MeshStandardMaterial({color: 0x8a6cff, roughness: .6, emissive: 0x2a1460}));
+    pl.position.set(5, -7, -38); S.add(pl); const at = atmosfera(3.25, 0x9a7bff); at.position.copy(pl.position); S.add(at);
+    const an = new THREE.Mesh(new THREE.RingGeometry(4, 6.4, 128), new THREE.MeshBasicMaterial({color: 0xd7c6ff, side: THREE.DoubleSide, transparent: true, opacity: .45}));
+    an.position.copy(pl.position); an.rotation.x = 1.25; an.rotation.y = .3; S.add(an);
+    const l = new THREE.PointLight(0xffffff, 900, 200); l.position.set(-20, 15, -10); S.add(l); S.add(new THREE.AmbientLight(0x221144, .6));
+    tick = (t) => { C.position.set(Math.sin(t * .2) * 1.5, Math.cos(t * .15) * 1.2, 10 - t * 3.2); C.lookAt(Math.sin(t * .2) * 1.5 + 0.6, -0.5, -40); campo.rotation.z = t * 0.02; pl.rotation.y = t * .1; };
+  },
+  async oceano(txt, seed, dur) {
+    novaCena(50); S.background = fundoGradiente('#0b2a55', '#77b6e6');
+    const mat = new THREE.ShaderMaterial({uniforms: {t: {value: 0}, sol: {value: new THREE.Vector3(-0.3, 0.35, -1).normalize()}},
+      vertexShader: `uniform float t; varying vec3 wp; varying vec3 nn;
+        float onda(vec2 p, vec2 d, float f, float a, float s){ return a*sin(dot(p,d)*f + t*s); }
+        float alt(vec2 p){ return onda(p,vec2(1,.2),.35,.55,1.1)+onda(p,vec2(-.4,1),.6,.28,1.6)+onda(p,vec2(.7,-.7),1.3,.12,2.3)+onda(p,vec2(-.9,-.3),2.4,.05,3.1); }
+        void main(){ vec4 b=modelMatrix*vec4(position,1.); vec2 q=b.xz; float h=alt(q); float e=.05;
+          vec3 n=normalize(vec3(-(alt(q+vec2(e,0))-h)/e,1.,-(alt(q+vec2(0,e))-h)/e));
+          wp=vec3(q.x,h,q.y); nn=n; gl_Position=projectionMatrix*viewMatrix*vec4(wp,1.); }`,
+      fragmentShader: `uniform vec3 sol; varying vec3 wp; varying vec3 nn;
+        void main(){ vec3 v=normalize(cameraPosition-wp); vec3 n=normalize(nn); float fr=pow(1.-max(dot(n,v),0.),4.);
+          vec3 fundo=vec3(.0,.13,.25), ceu=vec3(.55,.78,.95); vec3 c=mix(fundo,ceu,fr*.9);
+          float sp=pow(max(dot(reflect(-sol,n),v),0.),120.); c+=vec3(1.,.95,.8)*sp*2.2; c+=vec3(.0,.25,.3)*smoothstep(.2,1.2,wp.y);
+          float d=length(cameraPosition-wp); c=mix(c,ceu*.95,smoothstep(40.,140.,d)); gl_FragColor=vec4(c,1.); }`});
+    const mar = new THREE.Mesh(new THREE.PlaneGeometry(320, 320, 360, 360), mat); mar.rotation.x = -Math.PI / 2; S.add(mar);
+    const s = brilho('rgba(255,245,210,1)', 1); s.scale.setScalar(26); s.position.set(-40, 28, -150); S.add(s);
+    tick = (t) => { mat.uniforms.t.value = t + seed % 50; C.position.set(Math.sin(t * .1) * 3, 3.2 + Math.sin(t * .6) * .25, 30 - t * 2.2); C.lookAt(-6, 1.2, -40 - t * 2.2); };
+  },
+  async numero(txt, seed, dur) {
+    novaCena(40); S.background = fundoGradiente('#12062e', '#030108');
+    const tt = textoTex((txt || '?').toUpperCase().slice(0, 18), '#ffe14d', '#ff8a00');
+    const grp = new THREE.Group(); S.add(grp);
+    for (let k = 0; k < 10; k++) { const m = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 2.3), new THREE.MeshBasicMaterial({map: tt, transparent: true, depthWrite: false, opacity: k === 9 ? 1 : 0.07, color: k === 9 ? 0xffffff : 0x7a3a00})); m.position.z = -0.012 * (9 - k); grp.add(m); }
+    const r = rnd(seed + 11), pts = [];
+    for (let i = 0; i < 90; i++) { const s = brilho(['rgba(255,220,80,1)', 'rgba(170,90,255,1)', 'rgba(60,180,255,1)'][i % 3], .5 + r() * .5); s.scale.setScalar(.05 + r() * .14); s.userData = {a: r() * 6.28, rr: 1.3 + r() * 2, v: .2 + r() * .5, y: (r() - .5) * 6}; S.add(s); pts.push(s); }
+    const aneis = []; for (let i = 0; i < 3; i++) { const a = new THREE.Mesh(new THREE.TorusGeometry(1.5 + i * .3, .012, 8, 160), new THREE.MeshBasicMaterial({color: [0xffd23f, 0xa06bff, 0x3fb2ff][i], transparent: true, opacity: .55})); S.add(a); aneis.push(a); }
+    tick = (t) => { const e = ease(t / 0.6); grp.scale.setScalar(0.4 + 0.6 * e + 0.03 * Math.sin(t * 2)); grp.rotation.y = Math.sin(t * .7) * .28; grp.rotation.x = Math.sin(t * .5) * .1;
+      pts.forEach((s) => { const u = s.userData; s.position.set(Math.cos(u.a + t * u.v) * u.rr, u.y + Math.sin(t * u.v + u.a) * .3, Math.sin(u.a + t * u.v) * u.rr - 1); });
+      aneis.forEach((a, i) => { a.rotation.x = 1.2 + i * .3 + t * .2 * (i + 1); a.rotation.y = t * .15 * (i + 1); });
+      C.position.set(Math.sin(t * .25) * .6, Math.cos(t * .2) * .3, 6.6 - ease(t / Math.max(dur, 1)) * .8); C.lookAt(0, 0, 0); };
+  },
+  async atomo(txt, seed, dur) {
+    novaCena(40); S.background = fundoGradiente('#04122a', '#000208');
+    const g = new THREE.Group(); S.add(g); const r = rnd(seed + 5);
+    for (let i = 0; i < 18; i++) { const m = new THREE.Mesh(new THREE.SphereGeometry(.22, 32, 32), new THREE.MeshPhysicalMaterial({color: i % 2 ? 0xff3d5a : 0x3d8bff, roughness: .25, clearcoat: 1}));
+      const u = r() * 2 - 1, th = r() * 6.28, rr = .32 * Math.cbrt(r()); m.position.set(Math.sqrt(1 - u * u) * Math.cos(th) * rr, Math.sqrt(1 - u * u) * Math.sin(th) * rr, u * rr); g.add(m); }
+    const nb = brilho('rgba(120,170,255,1)', .6); nb.scale.setScalar(2.2); g.add(nb);
+    const orb = [];
+    for (let i = 0; i < 3; i++) { const o = new THREE.Group(); o.rotation.set(i * 1.05, i * .7, 0); g.add(o);
+      o.add(new THREE.Mesh(new THREE.TorusGeometry(1.9, .015, 8, 200), new THREE.MeshBasicMaterial({color: 0x7fd8ff, transparent: true, opacity: .6})));
+      const e = new THREE.Mesh(new THREE.SphereGeometry(.09, 24, 24), new THREE.MeshBasicMaterial({color: 0xbff4ff})); const eb = brilho('rgba(120,230,255,1)', .9); eb.scale.setScalar(.6); e.add(eb); o.add(e); orb.push(e); }
+    S.add(estrelas(2500, 50, seed, .08)); S.add(new THREE.AmbientLight(0xffffff, .5)); const l = new THREE.PointLight(0xffffff, 60, 30); l.position.set(3, 4, 5); S.add(l);
+    tick = (t) => { orb.forEach((e, i) => { const a = t * (1.6 + i * .5) + i * 2; e.position.set(Math.cos(a) * 1.9, Math.sin(a) * 1.9, 0); }); g.rotation.y = t * .25; g.rotation.x = Math.sin(t * .3) * .2;
+      C.position.set(0, .2, 8.4 - ease(t / Math.max(dur, 1)) * 1.6); C.lookAt(0, 0, 0); };
+  },
+  async dna(txt, seed, dur) {
+    novaCena(42); S.background = fundoGradiente('#1a0630', '#020008');
+    const g = new THREE.Group(); S.add(g);
+    const ma = new THREE.MeshPhysicalMaterial({color: 0x3fb2ff, roughness: .2, clearcoat: 1, emissive: 0x08233a}), mb = new THREE.MeshPhysicalMaterial({color: 0xff4fb0, roughness: .2, clearcoat: 1, emissive: 0x3a0820});
+    const mbar = [0xffd23f, 0x2fd6a3, 0xa06bff, 0xff8a3d].map((c) => new THREE.MeshStandardMaterial({color: c, roughness: .4}));
+    const bola = new THREE.SphereGeometry(.16, 24, 24);
+    for (let i = 0; i < 46; i++) { const y = (i - 23) * .28, a = i * .42;
+      const s1 = new THREE.Mesh(bola, ma); s1.position.set(Math.cos(a) * .9, y, Math.sin(a) * .9); const s2 = new THREE.Mesh(bola, mb); s2.position.set(Math.cos(a + Math.PI) * .9, y, Math.sin(a + Math.PI) * .9); g.add(s1, s2);
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(.045, .045, 1.8, 10), mbar[i % 4]); b.position.set(0, y, 0); b.rotation.z = Math.PI / 2; b.rotation.y = -a; g.add(b); }
+    S.add(new THREE.AmbientLight(0xffffff, .55)); const l = new THREE.PointLight(0xffffff, 80, 40); l.position.set(3, 3, 6); S.add(l);
+    const l2 = new THREE.PointLight(0xff4fb0, 40, 30); l2.position.set(-4, -2, 3); S.add(l2);
+    S.add(estrelas(1800, 40, seed, .06)); g.rotation.z = 0.35;
+    tick = (t) => { g.rotation.y = t * .55; const y = -2 + ease(t / Math.max(dur, 1)) * 4; C.position.set(Math.sin(t * .2) * .4, y, 6.2); C.lookAt(0, y, 0); };
+  },
+  async planeta(txt, seed, dur) {
+    novaCena(36); S.background = new THREE.Color(0x02020a);
+    const cnv = document.createElement('canvas'); cnv.width = 1024; cnv.height = 512; const x = cnv.getContext('2d'); const r = rnd(seed + 9);
+    for (let y = 0; y < 512; y += 4) { const k = .5 + .5 * Math.sin(y * .05 + r() * .6) * Math.sin(y * .013); x.fillStyle = `rgb(${200 + 40 * k},${160 + 50 * k},${100 + 40 * k})`; x.fillRect(0, y, 1024, 4); }
+    const tp = new THREE.CanvasTexture(cnv); tp.colorSpace = THREE.SRGBColorSpace;
+    const pl = new THREE.Mesh(new THREE.SphereGeometry(1, 128, 128), new THREE.MeshStandardMaterial({map: tp, roughness: .85})); S.add(pl);
+    const rc = document.createElement('canvas'); rc.width = 512; rc.height = 8; const rx = rc.getContext('2d');
+    for (let i = 0; i < 512; i++) { const a = (Math.sin(i * .09) * .5 + .5) * (i > 60 && i < 460 ? 1 : 0) * (i > 300 && i < 320 ? .1 : 1); rx.fillStyle = `rgba(230,210,170,${a * .85})`; rx.fillRect(i, 0, 1, 8); }
+    const rt = new THREE.CanvasTexture(rc); const rg = new THREE.RingGeometry(1.35, 2.4, 256); const pos = rg.attributes.position, uv = rg.attributes.uv;
+    for (let i = 0; i < pos.count; i++) { const d = Math.hypot(pos.getX(i), pos.getY(i)); uv.setXY(i, (d - 1.35) / 1.05, .5); }
+    const anel = new THREE.Mesh(rg, new THREE.MeshStandardMaterial({map: rt, transparent: true, side: THREE.DoubleSide, roughness: 1})); anel.rotation.x = -1.2; S.add(anel);
+    S.add(estrelas(4000, 70, seed, .12)); S.add(new THREE.AmbientLight(0x222233, .4)); const sol = new THREE.DirectionalLight(0xfff2dd, 3); sol.position.set(-4, 2, 3); S.add(sol);
+    tick = (t) => { pl.rotation.y = t * .2; const k = ease(t / Math.max(dur, 1)); C.position.set(-.6 + k * .8, 1.1 - k * .5, 8.6 - k * 1.4); C.lookAt(0, 0, 0); };
+  },
+};
+
+window.setup = async (cena, txt, seed, dur) => {
+  try { await document.fonts.load('800 100px Monts'); } catch (e) {}
+  const nome = CENAS[cena] ? cena : 'numero';
+  await CENAS[nome](txt, seed || 1, dur || 4);
+  return nome;
+};
+window.frame = (t) => { tick(t); R.render(S, C); return cv.toDataURL('image/jpeg', 0.9); };
+window.CENAS_DISPONIVEIS = Object.keys(CENAS);
+</script></body></html>
