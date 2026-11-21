@@ -359,7 +359,7 @@ def montar():
         h = json.loads((SAIDA / 'historia.json').read_text(encoding='utf-8'))
         if not (PASTA_3D / 'cena3d.html').exists():
             preparar_3d()
-        plano = {'pasta': str(PASTA_3D), 'w': 720, 'h': 1280, 'fps': 30, 'partes': []}
+        plano = {'pasta': str(PASTA_3D), 'w': 576, 'h': 1024, 'fps': 30, 'partes': []}
         for i, t in enumerate(tempos):
             d = t['fim'] - t['ini'] + (0.4 if i < len(tempos) - 1 else 0)
             c = h['cenas'][i] if i < len(h['cenas']) else {}
