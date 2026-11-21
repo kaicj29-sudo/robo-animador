@@ -274,8 +274,10 @@ CENAS.livre = async (txt, seed, dur, spec) => {
   if (spec.chao !== false) { const ch = new THREE.Mesh(new THREE.BoxGeometry(14, .2, 9), lp(cor(spec.chao, '#8fd16a'))); ch.position.y = -.1; S.add(ch); }
   const objs = []; (Array.isArray(spec.objetos) ? spec.objetos : []).slice(0, 24).forEach((o) => { try { const m = objeto(o || {}); if (m) { S.add(m); objs.push(m); } } catch (e) {} });
   if (!objs.length) { const m = etiqueta(String(txt || '?').slice(0, 24)); m.position.set(0, 2, 0); m.scale.multiplyScalar(1.6); S.add(m); }
-  const cam = spec.camera || {}; const alvo = new THREE.Vector3(...v3(cam.alvo, [0, 2, 0])), dist = Math.min(40, Math.max(5, num(cam.dist, 9) * 1.8)), el = num(cam.altura, 25) * Math.PI / 180, az0 = num(cam.lado, 20) * Math.PI / 180;
-  objs.forEach((m) => { if (m.isSprite) m.scale.multiplyScalar(Math.max(1.6, dist / 7)); });
+  const cam = spec.camera || {}; const alvo = new THREE.Vector3(...v3(cam.alvo, [0, 2, 0])), dist = Math.min(40, Math.max(13, num(cam.dist, 9) * 1.8)), el = num(cam.altura, 25) * Math.PI / 180, az0 = num(cam.lado, 20) * Math.PI / 180;
+  const visW = 2 * dist * Math.tan(20 * Math.PI / 180) * (W / H);
+  objs.forEach((m) => { if (!m.isSprite) return; m.scale.multiplyScalar(Math.max(1.6, dist / 7)); const k = Math.min(1, (visW * .5) / m.scale.x); m.scale.multiplyScalar(k);
+    m.position.x = Math.max(alvo.x - visW * .45 + m.scale.x / 2, Math.min(alvo.x + visW * .45 - m.scale.x / 2, m.position.x)); });
   tick = (t) => { objs.forEach((m) => animar(m, t, dur)); const az = az0 + (cam.girar === false ? 0 : Math.sin(t * .35) * .25) + t * .03, d = dist * (1 - .08 * ease(t / Math.max(dur, 1)));
     C.position.set(alvo.x + Math.sin(az) * Math.cos(el) * d, alvo.y + Math.sin(el) * d, alvo.z + Math.cos(az) * Math.cos(el) * d); C.lookAt(alvo); };
 };
