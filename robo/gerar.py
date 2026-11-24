@@ -12,6 +12,12 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parent.parent
 SAIDA = RAIZ / 'saida'
 SAIDA.mkdir(exist_ok=True)
+# Idioma do robô: 'pt' (padrão) ou 'en' (versão em inglês). Vem do arquivo robo/idioma.txt que o app grava no repositório.
+_arq_idioma = RAIZ / 'robo' / 'idioma.txt'
+IDIOMA = ((os.environ.get('IDIOMA') or (_arq_idioma.read_text(encoding='utf-8') if _arq_idioma.exists() else 'pt')).strip().lower() or 'pt')[:2]
+REGRA_EN = ('\n\nREGRA DE IDIOMA (obrigatória, vale mais que qualquer instrução acima): escreva TODOS os textos que vão para o público '
+            '(falas, títulos, pergunta, destaques, etiquetas, legenda do post e hashtags) em inglês americano natural, para um público dos EUA. '
+            'Use nomes, lugares, dinheiro (US$) e situações do dia a dia americano. Não mude os nomes das chaves do JSON nem os valores técnicos (cenas, peças, animações, cores).')
 GEM = 'https://generativelanguage.googleapis.com/v1beta/models'
 
 
@@ -54,6 +60,8 @@ def modelos(tipo):
 
 
 def gemini_texto(prompt):
+    if IDIOMA == 'en':
+        prompt += REGRA_EN
     corpo = {'contents': [{'parts': [{'text': prompt}]}], 'generationConfig': {'temperature': 1.0, 'responseMimeType': 'application/json'}}
     ultimo = None
     for modelo in dict.fromkeys(modelos('texto')):
