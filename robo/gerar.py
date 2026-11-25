@@ -93,6 +93,7 @@ ESTILOS = {
     'curio3d': 'de curiosidade em 3D (fatos reais)',
     'explica3d': 'explicativo em 3D (como as coisas funcionam)',
     'ese3d': 'E se...? em 3D (situação hipotética explicada com ciência)',
+    'historia3d': 'história em 3D com personagens (conflito do dia a dia)',
     'decide': 'interativa, que termina num dilema com duas opções pra o público votar nos comentários',
     'familia': 'de treta de família, situação polêmica do dia a dia que divide opiniões',
 }
@@ -188,11 +189,46 @@ Responda só em JSON: {{"titulo": str, "pergunta": str, "cenas": [{{"fala": str,
     return h
 
 
+KIT_HIST = '''Peças extras de HISTÓRIA (mesmas coordenadas):
+- {"tipo":"boneco","quem":"nome do elenco","pos":[x,0,z],"rot":[0,graus,0],"emocao":"feliz|bravo|triste|assustado|surpreso|chorando|malandro|neutro"}  (personagem do elenco; rot y 0 = olhando pra câmera, 90 = pra direita da tela, -90 = pra esquerda)
+- {"tipo":"balao","pos":[x,y,z],"texto":"até 4 palavras"}  (balão de fala; ponha uns 2,6 m acima do pé de quem fala)
+- Cenário pronto (pos é o pé/base): "casa" (fachada com telhado, 3 m), "parede" (fundo de cômodo, 8 m), "janela", "porta", "sofa", "cama", "mesa", "tv", "roteador", "celular", "arvore", "carro", "poste", "nuvem", "dinheiro". Ex.: {"tipo":"sofa","pos":[-1,0,0],"cor":"#e76f51"}. Aceitam "escala" e "rot".
+- Atuação ("anim" no boneco): "andar" (com "para"), "tremer" (medo/raiva), "pular" (alegria), "acenar", "apontar", "virar" (com "graus").'''
+
+
+def historia_conto3d(tema, n):
+    prompt = f"""Você é roteirista e diretor de animação de histórias virais curtas em 3D low-poly (bonecos de bloco, cores vivas, tipo maquete), em português do Brasil.
+Tema: "{tema}".
+Regras do roteiro:
+- Uma história de ficção do dia a dia, com 2 ou 3 personagens, conflito claro e uma virada. Narrador fala com quem assiste.
+- Exatamente {n} falas, de 8 a 20 palavras. Fala 1 = GANCHO com o conflito inteiro. Depois: contexto, escalada, fala do outro personagem (entre aspas, cara de pau), virada surpreendente, consequência. {FINAIS.get(env('FINAL'), FINAIS['Pergunta pra comentar'])}
+- "pergunta": título curto (até 40 caracteres).
+- "elenco": {{"Nome": {{"roupa":"#hex","calca":"#hex","pele":"#hex","cabelo":"#hex","cabeloLongo":bool,"bone":"#hex ou omitir"}}}}. Cores bem diferentes entre os personagens. Nomes simples.
+Regras da cena 3D de cada fala ("spec"):
+- Use SEMPRE os personagens do elenco pelo "quem", com a emoção certa da fala. O mesmo cenário base em cenas seguidas, mudando ângulo e ação.
+- Câmera de CINEMA: "dist" entre 3 e 6 pra close no rosto (alvo na altura da cabeça, y≈1.7), 7 a 10 pra plano aberto. Alterne close e aberto. "altura" 5 a 15, "lado" -30 a 30.
+- 5 a 16 peças. Pelo menos um boneco com "anim" de atuação por cena. Use "balao" quando um personagem fala. Fundo e chão com cores que combinem com o lugar (sala, rua, quarto).
+{KIT_3D}
+{KIT_HIST}
+Responda só em JSON: {{"titulo": str, "pergunta": str, "elenco": {{...}}, "cenas": [{{"fala": str, "destaque": str, "spec": {{...cena...}}}}], "legenda": str}}
+("destaque" é a palavra mais forte da fala; "legenda": 2 a 3 frases, um emoji, chamada pra comentar e 4 hashtags.)"""
+    h = gemini_texto(prompt)
+    h['cenas'] = h['cenas'][:n]
+    el = h.get('elenco') or {}
+    for c in h['cenas']:
+        c['cena3d'] = 'livre'
+        c['texto3d'] = c.get('destaque', '')
+        sp = c.get('spec') or {}
+        sp['elenco'], sp['historia'] = el, True
+        c['spec'] = sp
+    return h
+
+
 def historia():
     tema, estilo = env('TEMA'), env('ESTILO', 'drama')
-    if estilo in ('explica3d', 'ese3d'):
+    if estilo in ('explica3d', 'ese3d', 'historia3d'):
         n = CENAS_POR_DURACAO.get(env('DURACAO', '45s'), 7)
-        h = historia_explica(tema, n, estilo)
+        h = historia_conto3d(tema, n) if estilo == 'historia3d' else historia_explica(tema, n, estilo)
         (SAIDA / 'historia.json').write_text(json.dumps(h, ensure_ascii=False, indent=1), encoding='utf-8')
         log('3D explicativo:', h.get('pergunta') or h['titulo'], '|', len(h['cenas']), 'cenas')
         return
@@ -313,8 +349,8 @@ VOZES = {'Masculina': 'Puck', 'Feminina': 'Kore', 'Grave de suspense': 'Charon',
 TOM = {'drama': 'dramático e envolvente', 'medo': 'baixo, tenso e misterioso', 'risada': 'divertido e animado', 'emocao': 'emocionado e suave',
        'suspense': 'tenso e misterioso', 'romance': 'suave e apaixonado', 'motiva': 'inspirador e forte', 'curio': 'curioso e animado',
        'decide': 'envolvente, de quem conta uma fofoca', 'familia': 'indignado e engraçado', 'curio3d': 'curioso, animado e impressionado',
-       'explica3d': 'curioso e didático, como quem revela um segredo', 'ese3d': 'curioso, intrigado e animado'}
-ESTILOS_3D = ('curio3d', 'explica3d', 'ese3d')
+       'explica3d': 'curioso e didático, como quem revela um segredo', 'ese3d': 'curioso, intrigado e animado', 'historia3d': 'contador de história envolvente, com suspense e humor'}
+ESTILOS_3D = ('curio3d', 'explica3d', 'ese3d', 'historia3d')
 
 
 def tts(texto, voz):
@@ -444,7 +480,7 @@ def montar():
         ultimo = f'v{i}'; desloc += d - 0.4
     legendas(tempos, fonte, SAIDA / 'leg.ass')
     try:
-        perg = json.loads((SAIDA / 'historia.json').read_text(encoding='utf-8')).get('pergunta') if env('ESTILO') in ('explica3d', 'ese3d') else ''
+        perg = json.loads((SAIDA / 'historia.json').read_text(encoding='utf-8')).get('pergunta') if env('ESTILO') in ('explica3d', 'ese3d', 'historia3d') else ''
     except Exception:  # noqa: BLE001
         perg = ''
     if perg:
