@@ -276,7 +276,7 @@ Regras:
 - A cena 1 é o GANCHO: em uma frase, o conflito e o que está em jogo. Nada de "olá" ou apresentação.
 - Cada cena traz uma escalada ou virada. {FINAIS.get(env('FINAL'), FINAIS['Pergunta pra comentar'])}
 - Personagens fictícios. Nada de pessoas reais, marcas reais, violência gráfica ou conteúdo adulto.
-- Para cada cena, "imagem": descrição VISUAL em inglês da cena (quem aparece, expressão, ação, enquadramento), sem texto escrito na imagem. Chame cada personagem SEMPRE pelo mesmo nome do "elenco" (ex.: "Lucas", "Mia"); nunca escreva "he/she/the girl" sozinho. O protagonista aparece no máximo uma vez por imagem.
+- Para cada cena, "imagem": descrição VISUAL curta em inglês (até 40 palavras: quem aparece, expressão, ação simples, enquadramento), sem texto escrito na imagem. Chame cada personagem SEMPRE pelo mesmo nome do "elenco" (ex.: "Lucas", "Mia"); nunca escreva "he/she/the girl" sozinho. No máximo 2 personagens por imagem, cada um uma vez só. Prefira poses simples (evite mãos segurando várias coisas, abraços em grupo e muitas pessoas).
 - "personagem": descrição visual fixa, em inglês, do protagonista (nome, idade, cabelo, roupa, traços), pra manter igual em todas as cenas.
 - "elenco": os OUTROS personagens que aparecem (no máximo 3), cada um com "nome" e "visual" (descrição fixa em inglês: idade, cabelo, roupa, traços). Pode ser lista vazia.
 - "cenario": o lugar principal da história, descrito em inglês com detalhes fixos (tipo de lugar, cores, luz, objetos marcantes), pra todas as cenas parecerem no mesmo lugar. Se uma cena acontecer em outro lugar, diga o lugar dentro do "imagem".
@@ -352,15 +352,17 @@ def _simplificar(prompt):
 
 
 def cf_imagem(prompt, w, h, refs=(), seed=None):
-    """Gera a imagem. Se a Cloudflare recusar (HTTP 400), tenta de novo com prompt menor, sem referência e outra seed."""
-    tentativas = [(prompt, refs, seed), (_simplificar(prompt), refs, seed), (_simplificar(prompt), (), (seed or 0) + 7777),
-                  (_simplificar(prompt)[:350], (), (seed or 0) + 31)]
+    """Gera a imagem. Se a Cloudflare recusar (HTTP 400), tenta de novo com prompt menor e outra seed.
+    Com personagem de referência, NUNCA tira a referência: sem ela o personagem e o estilo mudam no meio do vídeo.
+    Se mesmo assim recusar, quem chamou reaproveita outra cena."""
+    curto = _simplificar(prompt)
+    tentativas = [(prompt, seed), (curto, (seed or 0) + 7777), (curto[:450], (seed or 0) + 31)]
     ultimo = None
-    for n, (p, r, sd) in enumerate(tentativas):
+    for n, (p, sd) in enumerate(tentativas):
         try:
-            return _cf_chamar(p, w, h, r, sd)
+            return _cf_chamar(p, w, h, refs, sd)
         except ImagemRecusada as e:
-            ultimo = e; log(f'   imagem recusada (tentativa {n + 1}), ajustando o pedido: {e}')
+            ultimo = e; log(f'   imagem recusada (tentativa {n + 1}, prompt de {len(p)} letras), ajustando o pedido: {e}')
     raise ImagemRecusada(f'o gerador recusou essa imagem ({ultimo})')
 
 
@@ -389,15 +391,27 @@ def preparar_3d():
     log('motor 3D pronto')
 
 
+def _curto(txt, n):
+    """Corta a descrição no fim de uma frase/vírgula, sem passar de n caracteres."""
+    txt = re.sub(r'\s+', ' ', str(txt or '')).strip()
+    if len(txt) <= n:
+        return txt
+    corte = txt[:n]
+    pos = max(corte.rfind('. '), corte.rfind(', '))
+    return (corte[:pos] if pos > n // 2 else corte).rstrip(' ,.')
+
+
 def prompt_cena(h, c, arte):
-    """Prompt de uma cena com continuidade: mesmo cenário, mesmo protagonista e os outros personagens sempre iguais."""
-    cena = c.get('imagem', '')
-    outros = [e for e in (h.get('elenco') or []) if isinstance(e, dict) and e.get('nome') and e.get('nome', '').lower() in cena.lower()]
-    partes = [f"{arte}. Vertical 9:16 frame. Scene: {cena}.", "Full detailed background environment (never a plain or studio background).",
-              f"Setting: {h['cenario']}." if h.get('cenario') else '',
-              f"Main character, appears only ONCE in the image, looks exactly like the reference image (use the reference only for the character, not for the background): {h['personagem']}.",
-              ' '.join(f"{e['nome']}: {e.get('visual', '')}." for e in outros),
-              "Each character appears only once, no duplicates, no clones. No text, no letters, no watermark."]
+    """Prompt de uma cena com continuidade, curto (prompt longo demais é recusado ou piora a anatomia).
+    Só frases positivas: o gerador não entende "não faça X" e às vezes faz justamente o X."""
+    cena = _curto(c.get('imagem', ''), 300)
+    outros = [e for e in (h.get('elenco') or []) if isinstance(e, dict) and e.get('nome') and e.get('nome', '').lower() in cena.lower()][:1]
+    partes = [f"{arte}. Vertical 9:16 frame. Scene: {cena}.",
+              f"Setting with a detailed background: {_curto(h['cenario'], 200)}." if h.get('cenario') else 'Detailed background environment.',
+              f"Main character, same as the reference image (face, hair, clothes, colors): {_curto(h['personagem'], 220)}.",
+              ' '.join(f"{e['nome']}: {_curto(e.get('visual', ''), 140)}." for e in outros),
+              "Each person shown one time, natural anatomy with two arms and two hands each, clean simple poses.",
+              f"Same art style in every scene: {arte}. Image without any text."]
     return ' '.join(x for x in partes if x)
 
 
