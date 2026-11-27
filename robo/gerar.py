@@ -487,12 +487,18 @@ def _t(s):
     return f'{int(h)}:{int(m):02d}:{s2:05.2f}'
 
 
-def legendas(tempos, fonte, arq):
-    """Legenda da fala. Fonte e cor vêm da escolha no app (LEG); 'sem' = vídeo sem legenda."""
+def estilo_leg(fonte):
+    """Fonte, tamanho e cores escolhidos no app (vale pra legenda e pro título das perguntas 3D)."""
     chave = LEG['fonte'] if LEG['fonte'] in FONTES_LEG else 'classica'
     nome_leg = fonte if chave == 'classica' else (_baixar_fonte(chave) or fonte)
     tam = FONTES_LEG[chave][2] if nome_leg != 'DejaVu Sans' else 74
     cor, cor_dest = CORES_LEG.get(LEG['cor'], CORES_LEG['branco'])
+    return nome_leg, tam, cor, cor_dest
+
+
+def legendas(tempos, fonte, arq):
+    """Legenda da fala. Fonte e cor vêm da escolha no app (LEG); 'sem' = vídeo sem legenda."""
+    nome_leg, tam, cor, cor_dest = estilo_leg(fonte)
     negrito = -1 if nome_leg == 'DejaVu Sans' else 0
     linhas = ['[Script Info]', 'ScriptType: v4.00+', 'PlayResX: 1080', 'PlayResY: 1920', '',
               '[V4+ Styles]', 'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
@@ -552,9 +558,11 @@ def montar():
         perg = json.loads((SAIDA / 'historia.json').read_text(encoding='utf-8')).get('pergunta') if env('ESTILO') in ('explica3d', 'ese3d', 'historia3d') else ''
     except Exception:  # noqa: BLE001
         perg = ''
-    if perg:
+    if perg and LEG['fonte'] != 'sem':   # o título segue a escolha da legenda (sem legenda = sem título)
         ass = (SAIDA / 'leg.ass').read_text(encoding='utf-8')
-        estilo_t = f'Style: T,{fonte},76,&H00111111,&H00111111,&H00FFFFFF,&H00FFFFFF,-1,0,0,0,100,100,0,0,3,22,0,8,80,80,190,1'
+        nome_t, tam_t, cor_t, _ = estilo_leg(fonte)
+        neg_t = -1 if nome_t == 'DejaVu Sans' else 0
+        estilo_t = f'Style: T,{nome_t},{round(tam_t * 76 / 78)},&H00111111,&H00111111,{cor_t},{cor_t},{neg_t},0,0,0,100,100,0,0,3,22,0,8,80,80,190,1'
         ass = ass.replace('\n\n[Events]', '\n' + estilo_t + '\n\n[Events]', 1)
         ass += f'Dialogue: 1,{_t(0)},{_t(tempos[-1]["fim"] + 1)},T,,0,0,0,,{perg.replace(chr(10), " ")}\n'
         (SAIDA / 'leg.ass').write_text(ass, encoding='utf-8')
