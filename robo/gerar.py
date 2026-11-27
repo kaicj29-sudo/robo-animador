@@ -276,10 +276,12 @@ Regras:
 - A cena 1 é o GANCHO: em uma frase, o conflito e o que está em jogo. Nada de "olá" ou apresentação.
 - Cada cena traz uma escalada ou virada. {FINAIS.get(env('FINAL'), FINAIS['Pergunta pra comentar'])}
 - Personagens fictícios. Nada de pessoas reais, marcas reais, violência gráfica ou conteúdo adulto.
-- Para cada cena, "imagem": descrição VISUAL em inglês da cena (quem aparece, expressão, ação, lugar, enquadramento), sem texto escrito na imagem.
-- "personagem": descrição visual fixa, em inglês, do protagonista (idade, cabelo, roupa, traços), pra manter igual em todas as cenas.
+- Para cada cena, "imagem": descrição VISUAL em inglês da cena (quem aparece, expressão, ação, enquadramento), sem texto escrito na imagem. Chame cada personagem SEMPRE pelo mesmo nome do "elenco" (ex.: "Lucas", "Mia"); nunca escreva "he/she/the girl" sozinho. O protagonista aparece no máximo uma vez por imagem.
+- "personagem": descrição visual fixa, em inglês, do protagonista (nome, idade, cabelo, roupa, traços), pra manter igual em todas as cenas.
+- "elenco": os OUTROS personagens que aparecem (no máximo 3), cada um com "nome" e "visual" (descrição fixa em inglês: idade, cabelo, roupa, traços). Pode ser lista vazia.
+- "cenario": o lugar principal da história, descrito em inglês com detalhes fixos (tipo de lugar, cores, luz, objetos marcantes), pra todas as cenas parecerem no mesmo lugar. Se uma cena acontecer em outro lugar, diga o lugar dentro do "imagem".
 - "legenda": legenda do post em português com 2 a 3 frases curtas, um emoji, uma chamada pra comentar e 4 hashtags.
-Responda só em JSON: {{"titulo": str, "personagem": str, "cenas": [{{"fala": str, "imagem": str, "destaque": str}}], "legenda": str}}
+Responda só em JSON: {{"titulo": str, "personagem": str, "elenco": [{{"nome": str, "visual": str}}], "cenario": str, "cenas": [{{"fala": str, "imagem": str, "destaque": str}}], "legenda": str}}
 ("destaque" é a palavra mais forte da fala)."""
     h = gemini_texto(prompt)
     h['cenas'] = h['cenas'][:n]
@@ -387,6 +389,18 @@ def preparar_3d():
     log('motor 3D pronto')
 
 
+def prompt_cena(h, c, arte):
+    """Prompt de uma cena com continuidade: mesmo cenário, mesmo protagonista e os outros personagens sempre iguais."""
+    cena = c.get('imagem', '')
+    outros = [e for e in (h.get('elenco') or []) if isinstance(e, dict) and e.get('nome') and e.get('nome', '').lower() in cena.lower()]
+    partes = [f"{arte}. Vertical 9:16 frame. Scene: {cena}.", "Full detailed background environment (never a plain or studio background).",
+              f"Setting: {h['cenario']}." if h.get('cenario') else '',
+              f"Main character, appears only ONCE in the image, looks exactly like the reference image (use the reference only for the character, not for the background): {h['personagem']}.",
+              ' '.join(f"{e['nome']}: {e.get('visual', '')}." for e in outros),
+              "Each character appears only once, no duplicates, no clones. No text, no letters, no watermark."]
+    return ' '.join(x for x in partes if x)
+
+
 def imagens():
     h = json.loads((SAIDA / 'historia.json').read_text(encoding='utf-8'))
     if env('ESTILO') in ESTILOS_3D:
@@ -403,7 +417,7 @@ def imagens():
         refs = []; log('   personagem recusado, sigo sem referência:', e)
     feitas = []
     for i, c in enumerate(h['cenas']):
-        p = f"{arte}. Vertical 9:16 frame. Main character (exactly as in the reference image, same face, same hair, same clothes and colors in every scene): {h['personagem']}. Scene: {c['imagem']}. No text, no letters, no watermark."
+        p = prompt_cena(h, c, arte)
         destino = SAIDA / f'cena_{i:02d}.png'
         try:
             destino.write_bytes(cf_imagem(p, 720, 1280, refs=refs, seed=seed + i + 1))
